@@ -1,4 +1,4 @@
-name: Build geoip-ru.dat
+name: Build geo-ru.dat files
 
 on:
   schedule:
@@ -20,7 +20,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+          cache: false
 
+      # ── geoip-ru.dat ──────────────────────────────────────────────
       - name: Install v2fly/geoip tool
         run: go install github.com/v2fly/geoip@latest
 
@@ -29,19 +31,16 @@ jobs:
           curl -fsSL \
             "https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt" \
             -o ru-ipv4.txt
-          echo "Строк в списке: $(wc -l < ru-ipv4.txt)"
+          echo "Строк: $(wc -l < ru-ipv4.txt)"
           head -3 ru-ipv4.txt
 
-      - name: Write geoip builder config
+      - name: Build geoip-ru.dat
         run: |
           mkdir -p output/dat
-          cat > config.json << 'CONF'
+          cat > geoip-config.json << 'CONF'
           {
             "input": [
-              {
-                "type": "private",
-                "action": "add"
-              },
+              { "type": "private", "action": "add" },
               {
                 "type": "text",
                 "action": "add",
@@ -65,12 +64,31 @@ jobs:
             ]
           }
           CONF
+          geoip -c geoip-config.json
+          echo "geoip-ru.dat: $(ls -lh output/dat/geoip-ru.dat | awk '{print $5}')"
 
-      - name: Build geoip-ru.dat
+      # ── geosite-ru.dat ────────────────────────────────────────────
+      - name: Clone domain-list-community
         run: |
-          geoip -c config.json
+          git clone --depth=1 https://github.com/v2fly/domain-list-community.git dlc
+          echo "Клонировано, файлов в data/: $(ls dlc/data/ | wc -l)"
+
+      - name: Build geosite-ru.dat (only category-ru)
+        run: |
+          cd dlc
+          go run ./ \
+            --datapath=./data \
+            --outputname=geosite-ru.dat \
+            --outputdir=../output/dat \
+            --exportlists=category-ru
+          cd ..
+          echo "geosite-ru.dat: $(ls -lh output/dat/geosite-ru.dat | awk '{print $5}')"
+
+      # ── Итог и релиз ─────────────────────────────────────────────
+      - name: Summary
+        run: |
+          echo "=== Собранные файлы ==="
           ls -lh output/dat/
-          echo "Размер: $(ls -lh output/dat/geoip-ru.dat | awk '{print $5}')"
 
       - name: Set release tag
         id: tag
@@ -80,25 +98,38 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: "GeoIP RU — ${{ steps.tag.outputs.tag }}"
+          name: "GeoIP/GeoSite RU — ${{ steps.tag.outputs.tag }}"
           body: |
             Автоматическая сборка от ${{ steps.tag.outputs.tag }}.
 
-            Содержит теги:
+            ## Файлы
+
+            ### geoip-ru.dat (~85 КБ)
+            Содержит:
             - `geoip:ru` — IPv4-подсети РФ (источник: ipverse/rir-ip)
             - `geoip:private` — приватные диапазоны (RFC 1918 и др.)
 
-            **Использование в Xray/V2Ray:**
+            ### geosite-ru.dat
+            Содержит:
+            - `geosite:category-ru` — российские домены (источник: v2fly/domain-list-community)
+
+            ## Использование в Xray
+
             ```json
-            { "ip": ["ext:geoip-ru.dat:private"], "outboundTag": "direct" },
-            { "ip": ["ext:geoip-ru.dat:ru"],      "outboundTag": "direct" }
+            { "ip":     ["ext:geoip-ru.dat:private"],      "outboundTag": "direct" },
+            { "ip":     ["ext:geoip-ru.dat:ru"],           "outboundTag": "direct" },
+            { "domain": ["ext:geosite-ru.dat:category-ru"],"outboundTag": "direct" }
             ```
 
-            **Прямая ссылка:**
+            ## Прямые ссылки
+
             ```
             https://github.com/${{ github.repository }}/releases/latest/download/geoip-ru.dat
+            https://github.com/${{ github.repository }}/releases/latest/download/geosite-ru.dat
             ```
-          files: output/dat/geoip-ru.dat
+          files: |
+            output/dat/geoip-ru.dat
+            output/dat/geosite-ru.dat
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
