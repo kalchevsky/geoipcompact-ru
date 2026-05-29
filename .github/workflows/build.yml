@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -14,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -85,14 +84,6 @@ jobs:
           echo "geosite-ru.dat: $(ls -lh output/dat/geosite-ru.dat | awk '{print $5}')"
 
       # ── Итог и релиз ─────────────────────────────────────────────
-      - name: Keep repo alive (обновляем timestamp)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          echo "Last build: $(date -u)" > last-build.txt
-          git add last-build.txt
-          git commit -m "chore: update last-build timestamp" || echo "No changes"
-          git push
       - name: Summary
         run: |
           echo "=== Собранные файлы ==="
@@ -103,7 +94,7 @@ jobs:
         run: echo "tag=$(date -u +'%Y%m%d')" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "GeoIP/GeoSite RU — ${{ steps.tag.outputs.tag }}"
@@ -120,6 +111,14 @@ jobs:
             ### geosite-ru.dat
             Содержит:
             - `geosite:category-ru` — российские домены (источник: v2fly/domain-list-community)
+
+            ## Использование в Xray
+
+            ```json
+            { "ip":     ["ext:geoip-ru.dat:private"],      "outboundTag": "direct" },
+            { "ip":     ["ext:geoip-ru.dat:ru"],           "outboundTag": "direct" },
+            { "domain": ["ext:geosite-ru.dat:category-ru"],"outboundTag": "direct" }
+            ```
 
             ## Прямые ссылки
 
