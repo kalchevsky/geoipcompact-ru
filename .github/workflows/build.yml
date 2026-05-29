@@ -85,6 +85,14 @@ jobs:
           echo "geosite-ru.dat: $(ls -lh output/dat/geosite-ru.dat | awk '{print $5}')"
 
       # ── Итог и релиз ─────────────────────────────────────────────
+      - name: Keep repo alive (обновляем timestamp)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Last build: $(date -u)" > last-build.txt
+          git add last-build.txt
+          git commit -m "chore: update last-build timestamp" || echo "No changes"
+          git push
       - name: Summary
         run: |
           echo "=== Собранные файлы ==="
@@ -112,14 +120,6 @@ jobs:
             ### geosite-ru.dat
             Содержит:
             - `geosite:category-ru` — российские домены (источник: v2fly/domain-list-community)
-
-            ## Использование в Xray
-
-            ```json
-            { "ip":     ["ext:geoip-ru.dat:private"],      "outboundTag": "direct" },
-            { "ip":     ["ext:geoip-ru.dat:ru"],           "outboundTag": "direct" },
-            { "domain": ["ext:geosite-ru.dat:category-ru"],"outboundTag": "direct" }
-            ```
 
             ## Прямые ссылки
 
