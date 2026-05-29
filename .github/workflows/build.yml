@@ -1,0 +1,107 @@
+name: Build geoip-ru.dat
+
+on:
+  schedule:
+    # Каждый день в 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Ручной запуск из GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Скачиваем инструмент v2fly/geoip (последний релиз под linux/amd64)
+      - name: Download v2fly/geoip tool
+        run: |
+          RELEASE_URL=$(curl -sf https://api.github.com/repos/v2fly/geoip/releases/latest \
+            | jq -r '.assets[] | select(.name == "geoip") | .browser_download_url')
+          curl -fsSL "$RELEASE_URL" -o geoip-tool
+          chmod +x geoip-tool
+          ./geoip-tool -l
+
+      # Скачиваем актуальный список IPv4-подсетей РФ от ipverse
+      - name: Download RU IPv4 list from ipverse
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt" \
+            -o ru-ipv4.txt
+          echo "Строк в списке: $(wc -l < ru-ipv4.txt)"
+          head -5 ru-ipv4.txt
+
+      # Формируем config.json для v2fly/geoip
+      - name: Write geoip builder config
+        run: |
+          cat > config.json << 'EOF'
+          {
+            "input": [
+              {
+                "type": "private",
+                "action": "add"
+              },
+              {
+                "type": "text",
+                "action": "add",
+                "args": {
+                  "name": "ru",
+                  "uri": "ru-ipv4.txt",
+                  "onlyIPType": "ipv4"
+                }
+              }
+            ],
+            "output": [
+              {
+                "type": "v2rayGeoIPDat",
+                "action": "output",
+                "args": {
+                  "outputName": "geoip-ru.dat",
+                  "wantedList": ["private", "ru"]
+                }
+              }
+            ]
+          }
+          EOF
+
+      # Собираем dat-файл
+      - name: Build geoip-ru.dat
+        run: |
+          mkdir -p output/dat
+          ./geoip-tool -c config.json
+          ls -lh output/dat/
+          echo "Готово: $(ls -lh output/dat/geoip-ru.dat | awk '{print $5}')"
+
+      # Тег релиза = дата сборки
+      - name: Set release tag
+        id: tag
+        run: echo "tag=$(date -u +'%Y%m%d')" >> "$GITHUB_OUTPUT"
+
+      # Публикуем релиз с файлом
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "GeoIP RU — ${{ steps.tag.outputs.tag }}"
+          body: |
+            Автоматическая сборка от ${{ steps.tag.outputs.tag }}.
+
+            Содержит теги:
+            - `geoip:ru` — IPv4-подсети РФ (источник: ipverse/rir-ip)
+            - `geoip:private` — приватные диапазоны (RFC 1918 и др.)
+
+            **Использование в Xray/V2Ray:**
+            ```json
+            { "ip": ["ext:geoip-ru.dat:ru"],      "outboundTag": "direct" },
+            { "ip": ["ext:geoip-ru.dat:private"],  "outboundTag": "direct" }
+            ```
+
+            **Прямая ссылка для скачивания:**
+            ```
+            https://github.com/${{ github.repository }}/releases/latest/download/geoip-ru.dat
+            ```
+          files: output/dat/geoip-ru.dat
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
